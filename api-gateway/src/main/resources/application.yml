@@ -1,0 +1,32 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+zuul:
+  routes:
+    flights:
+      path: /flights/**
+      serviceId: FLIGHT-SERVICE
+      strip-prefix: false
+    hotels:
+      path: /hotels/**
+      serviceId: HOTEL-SERVICE
+      strip-prefix: false
+    cars:
+      path: /cars/**
+      serviceId: CAR-RENTAL-SERVICE
+      strip-prefix: false
+
+ribbon:
+  eureka:
+    enabled: true
