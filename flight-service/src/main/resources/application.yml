@@ -1,0 +1,18 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: flight-service
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+rapidapi:
+  flight:
+    key: 66cbfb2142msh7dd689a1ea09c49p174b6cjsnbb98df7778c4
+    host: sky-scrapper.p.rapidapi.com
