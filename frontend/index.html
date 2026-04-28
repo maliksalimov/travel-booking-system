@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travel Booking System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Travel Booking Dashboard</h1>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="flights">✈️ Flights</button>
+        <button class="tab" data-tab="hotels">🏨 Hotels</button>
+        <button class="tab" data-tab="cars">🚗 Cars</button>
+    </div>
+
+    <!-- Flight Search -->
+    <div id="flights" class="tab-content active">
+        <h2>Search Flights</h2>
+        <form id="flight-form">
+            <input type="text" id="origin" placeholder="Origin (e.g., JFK)" required>
+            <input type="text" id="destination" placeholder="Destination (e.g., LAX)" required>
+            <input type="date" id="date" required>
+            <button type="submit">Search Flights</button>
+        </form>
+        <div id="flight-results"></div>
+    </div>
+
+    <!-- Hotel Search -->
+    <div id="hotels" class="tab-content">
+        <h2>Search Hotels</h2>
+        <form id="hotel-form">
+            <input type="text" id="hotel-location" placeholder="Location (e.g., New York)" required>
+            <button type="submit">Search Hotels</button>
+        </form>
+        <div id="hotel-results"></div>
+    </div>
+
+    <!-- Car Rental Search -->
+    <div id="cars" class="tab-content">
+        <h2>Search Car Rentals</h2>
+        <form id="car-form">
+            <input type="text" id="car-location" placeholder="Location (e.g., Los Angeles)" required>
+            <button type="submit">Search Cars</button>
+        </form>
+        <div id="car-results"></div>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
