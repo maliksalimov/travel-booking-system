@@ -1,0 +1,15 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: flight-service
+
+eureka:
+  client:
+    enabled: false
+
+rapidapi:
+  flight:
+    key: test-mock-key-not-used
+    host: sky-scrapper.p.rapidapi.com
