@@ -23,7 +23,13 @@ public class CarRentalController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<Car>> searchCars(@RequestParam String location) {
-        return ResponseEntity.ok(carRentalService.searchCars(location));
+    public ResponseEntity<List<Car>> searchCars(
+            @RequestParam String pickUpLat,
+            @RequestParam String pickUpLon,
+            @RequestParam String dropOffLat,
+            @RequestParam String dropOffLon,
+            @RequestParam String pickUpTime,
+            @RequestParam String dropOffTime) {
+        return ResponseEntity.ok(carRentalService.searchCars(pickUpLat, pickUpLon, dropOffLat, dropOffLon, pickUpTime, dropOffTime));
     }
 }

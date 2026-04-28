@@ -11,3 +11,8 @@ eureka:
       defaultZone: http://localhost:8761/eureka/
   instance:
     prefer-ip-address: true
+
+booking:
+  api:
+    key: ${BOOKING_API_KEY:66cbfb2142msh7dd689a1ea09c49p174b6cjsnbb98df7778c4}
+    host: ${BOOKING_API_HOST:booking-com15.p.rapidapi.com}

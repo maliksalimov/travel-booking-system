@@ -22,7 +22,11 @@ public class HotelController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<Hotel>> searchHotels(@RequestParam String location) {
-        return ResponseEntity.ok(hotelService.searchHotels(location));
+    public ResponseEntity<List<Hotel>> searchHotels(
+            @RequestParam String location,
+            @RequestParam(defaultValue = "2026-05-01") String arrivalDate,
+            @RequestParam(defaultValue = "2026-05-05") String departureDate
+    ) {
+        return ResponseEntity.ok(hotelService.searchHotels(location, arrivalDate, departureDate));
     }
 }

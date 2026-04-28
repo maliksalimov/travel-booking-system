@@ -20,8 +20,8 @@
     <div id="flights" class="tab-content active">
         <h2>Search Flights</h2>
         <form id="flight-form">
-            <input type="text" id="origin" placeholder="Origin (e.g., JFK)" required>
-            <input type="text" id="destination" placeholder="Destination (e.g., LAX)" required>
+            <input type="text" id="origin" placeholder="Origin IATA code (e.g., GYD, JFK, LHR)" required>
+            <input type="text" id="destination" placeholder="Destination IATA code (e.g., MAD, LAX, CDG)" required>
             <input type="date" id="date" required>
             <button type="submit">Search Flights</button>
         </form>
@@ -31,18 +31,24 @@
     <!-- Hotel Search -->
     <div id="hotels" class="tab-content">
         <h2>Search Hotels</h2>
-        <form id="hotel-form">
-            <input type="text" id="hotel-location" placeholder="Location (e.g., New York)" required>
+        <form id="hotel-form" class="search-form">
+            <input type="text" id="hotel-location" placeholder="Location (e.g., New York)" value="New York" required>
+            <input type="date" id="hotel-arrival" value="2026-05-01" required>
+            <input type="date" id="hotel-departure" value="2026-05-05" required>
             <button type="submit">Search Hotels</button>
         </form>
-        <div id="hotel-results"></div>
+        <div id="hotel-results" class="results"></div>
     </div>
 
     <!-- Car Rental Search -->
     <div id="cars" class="tab-content">
         <h2>Search Car Rentals</h2>
         <form id="car-form">
-            <input type="text" id="car-location" placeholder="Location (e.g., Los Angeles)" required>
+            <input type="text" id="car-location" placeholder="City (e.g., London, Baku, New York)" required>
+            <label>Pick-up date <input type="date" id="car-pickup-date" value="2026-05-01" required></label>
+            <label>Pick-up time <input type="time" id="car-pickup-time" value="10:00" required></label>
+            <label>Drop-off date <input type="date" id="car-dropoff-date" value="2026-05-05" required></label>
+            <label>Drop-off time <input type="time" id="car-dropoff-time" value="10:00" required></label>
             <button type="submit">Search Cars</button>
         </form>
         <div id="car-results"></div>

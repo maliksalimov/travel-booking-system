@@ -26,7 +26,20 @@ zuul:
       path: /cars/**
       serviceId: CAR-RENTAL-SERVICE
       strip-prefix: false
+  host:
+    connect-timeout-millis: 5000
+    socket-timeout-millis: 30000
 
 ribbon:
   eureka:
     enabled: true
+  ConnectTimeout: 5000
+  ReadTimeout: 20000
+
+hystrix:
+  command:
+    default:
+      execution:
+        isolation:
+          thread:
+            timeoutInMilliseconds: 30000
