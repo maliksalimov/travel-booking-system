@@ -14,5 +14,5 @@ eureka:
 
 rapidapi:
   flight:
-    key: ${RAPIDAPI_KEY}
+    key: ${RAPIDAPI_KEY:dummy-key-for-mock-data}
     host: sky-scrapper.p.rapidapi.com
