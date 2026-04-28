@@ -14,5 +14,5 @@ eureka:
 
 rapidapi:
   flight:
-    key: 66cbfb2142msh7dd689a1ea09c49p174b6cjsnbb98df7778c4
+    key: ${RAPIDAPI_KEY}
     host: sky-scrapper.p.rapidapi.com
