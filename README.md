@@ -1,408 +1,339 @@
 # Travel Booking System
 
-A microservices-based travel booking backend that exposes unified search across flights, hotels, and car rentals through a single API gateway.
+A production-grade microservices travel booking platform integrating real-time flight and hotel data from the Booking.com API, routed through a unified API gateway and served from a dark-themed web dashboard.
 
+[![Build Status](https://app.travis-ci.com/maliksalimov/travel-booking-system.svg?branch=main)](https://app.travis-ci.com/maliksalimov/travel-booking-system)
 [![Java](https://img.shields.io/badge/Java-11-orange?logo=openjdk)](https://adoptium.net/temurin/releases/?version=11)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.3.12-brightgreen?logo=springboot)](https://spring.io/projects/spring-boot)
 [![Spring Cloud](https://img.shields.io/badge/Spring%20Cloud-Hoxton.SR12-brightgreen?logo=spring)](https://spring.io/projects/spring-cloud)
 [![Gradle](https://img.shields.io/badge/Gradle-6.9.4-blue?logo=gradle)](https://gradle.org)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
 
-```
-                        ┌─────────────────────────────┐
-                        │   Eureka Discovery Server   │
-                        │        localhost:8761       │
-                        └──────────────┬──────────────┘
-                                       │ registers / discovers
-           ┌───────────────────────────┼───────────────────────────┐
-           │                           │                           │
-  ┌────────▼────────┐        ┌─────────▼────────┐       ┌─────────▼────────┐
-  │  Flight Service │        │  Hotel Service   │       │ Car Rental Svc   │
-  │  localhost:8081 │        │  localhost:8082  │       │  localhost:8083  │
-  └────────▲────────┘        └─────────▲────────┘       └─────────▲────────┘
-           │                           │                           │
-           └───────────────────────────┼───────────────────────────┘
-                                       │ routes via service ID
-                              ┌────────▼────────┐
-                              │   API Gateway   │
-                              │  localhost:8080 │
-                              └────────▲────────┘
-                                       │
-                                    Client
-```
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [API Integration Status](#api-integration-status)
+- [Technology Stack](#technology-stack)
+- [Prerequisites](#prerequisites)
+- [Quick Start — Docker Compose](#quick-start--docker-compose)
+- [Manual Setup](#manual-setup)
+- [Configuration](#configuration)
+- [Frontend Dashboard](#frontend-dashboard)
+- [API Reference](#api-reference)
+- [Project Structure](#project-structure)
+- [Testing](#testing)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## Overview
 
-This project implements a lightweight travel booking backend using the Spring Cloud Netflix stack. A single API gateway (Zuul) acts as the entry point for all client requests and routes them to the appropriate downstream service via Eureka-based service discovery — so consumers never need to know individual service ports or addresses.
+This project implements a travel search backend using the Spring Cloud Netflix stack. A Zuul API gateway acts as the single entry point, routing requests to three domain microservices via Eureka-based service discovery. All services are independently deployable and containerised with Docker.
 
-The architecture deliberately uses Netflix OSS components (Eureka, Zuul) rather than the newer Spring Cloud Gateway to demonstrate the Hoxton-era microservices pattern, which remains widely deployed in enterprise environments. Eureka handles dynamic service registration and health checking; Zuul handles routing and can be extended with filters for auth, rate limiting, and request transformation.
+**What works today:**
 
-This project is structured as a Gradle multi-module build so all five services share a single root build configuration, keeping dependency versions consistent and simplifying CI pipelines.
+| Service | Data Source | Status |
+|---|---|---|
+| Hotels | Booking.com API (booking-com15.p.rapidapi.com) | ✅ Live data |
+| Flights | Booking.com API with IATA code resolution | ✅ Live data |
+| Cars | Booking.com API | ⚠️ Upstream API returns server error |
 
 ---
 
 ## Architecture
 
-### Services
-
-| Service             | Port | Role                                          |
-|---------------------|------|-----------------------------------------------|
-| `discovery-service` | 8761 | Eureka server — service registry              |
-| `api-gateway`       | 8080 | Zuul proxy — single entry point for clients   |
-| `flight-service`    | 8081 | Flight search (RapidAPI + mock fallback)      |
-| `hotel-service`     | 8082 | Hotel search (mock data)                      |
-| `car-rental-service`| 8083 | Car rental search (mock data)                 |
+```
+                Browser / API Client
+                        │
+                        ▼
+          ┌─────────────────────────┐
+          │   Frontend Dashboard    │
+          │   frontend/index.html   │
+          │   Dark-themed SPA       │
+          └────────────┬────────────┘
+                       │ HTTP → localhost:8080
+                       ▼
+          ┌─────────────────────────┐
+          │      API Gateway        │
+          │    Zuul Proxy :8080     │
+          │  /flights/** → FLIGHT   │
+          │  /hotels/**  → HOTEL    │
+          │  /cars/**    → CAR      │
+          └────────────┬────────────┘
+                       │ resolves via
+                       ▼
+          ┌─────────────────────────┐
+          │   Eureka Discovery      │
+          │       :8761             │
+          └──────┬──────┬──────┬───┘
+                 │      │      │
+        ┌────────▼──┐ ┌─▼──────┴──┐ ┌──────────────┐
+        │  Flight   │ │   Hotel   │ │  Car Rental  │
+        │ Svc :8081 │ │ Svc :8082 │ │  Svc  :8083  │
+        └─────┬─────┘ └─────┬─────┘ └──────┬───────┘
+              │             │              │
+              └─────────────┴──────────────┘
+                            │
+                            ▼
+                  Booking.com RapidAPI
+              booking-com15.p.rapidapi.com
+```
 
 ### Request Flow
 
 ```
-$ curl "localhost:8080/flights/search?origin=JFK&destination=LAX&date=2026-05-01"
-        │
-        ▼
-  API Gateway (8080)
-  Zuul matches path /flights/**
-        │
-        ▼
-  Eureka (8761)
-  Resolves service ID "FLIGHT-SERVICE" → localhost:8081
-        │
-        ▼
-  Flight Service (8081)
-  GET /flights/search?origin=JFK&destination=LAX&date=2026-05-01
-        │
-        ▼
-  JSON response back through gateway to client
+GET localhost:8080/flights/search?origin=GYD&destination=MAD&date=2026-06-01
+  → Zuul matches /flights/**
+  → Eureka resolves FLIGHT-SERVICE → localhost:8081
+  → FlightService resolves "GYD" → "GYD.AIRPORT"
+  → Calls booking-com15.p.rapidapi.com/api/v1/flights/searchFlights
+  → Parses data.flightOffers[]
+  → Returns JSON array of real flights to client
 ```
 
-> Zuul is configured with `strip-prefix: false`, meaning the full path including `/flights/` is forwarded to the downstream service unchanged. The flight service's controller is mapped to `/flights/search`, so no path rewriting is needed.
+---
 
-### Technology Stack
+## API Integration Status
 
-| Layer             | Technology                          | Version        |
-|-------------------|-------------------------------------|----------------|
-| Language          | Java                                | 11             |
-| Framework         | Spring Boot                         | 2.3.12.RELEASE |
-| Cloud             | Spring Cloud Netflix                | Hoxton.SR12    |
-| Service Discovery | Netflix Eureka                      | —              |
-| API Gateway       | Netflix Zuul                        | —              |
-| HTTP Client       | OkHttp3                             | 4.9.3          |
-| JSON              | Jackson Databind                    | (managed)      |
-| Build             | Gradle (multi-module)               | 6.9.4          |
+### Hotels ✅ Live
+
+Calls `/api/v1/hotels/searchDestination` to convert a city name to a numeric `dest_id`, then calls `/api/v1/hotels/searchHotels`. Returns real hotel names, IDs, prices and review scores from Booking.com.
+
+```bash
+curl "http://localhost:8080/hotels/search?location=New%20York&arrivalDate=2026-06-01&departureDate=2026-06-05"
+```
+
+### Flights ✅ Live
+
+Accepts IATA airport codes (e.g. `GYD`, `MAD`) **or** common city names (e.g. `Baku`, `Madrid`) — a 60-city lookup map resolves city names to IATA codes. Calls `/api/v1/flights/searchFlights` and parses `data.flightOffers[]`.
+
+```bash
+curl "http://localhost:8080/flights/search?origin=GYD&destination=MAD&date=2026-06-01"
+# or
+curl "http://localhost:8080/flights/search?origin=Baku&destination=Madrid&date=2026-06-01"
+```
+
+### Cars ⚠️ Unavailable
+
+The `/api/v1/cars/searchCarRentals` endpoint on booking-com15 consistently returns `{"status":false,"message":"Something went wrong"}` for all coordinate inputs and date formats. The service returns an empty list and the frontend displays a clear error message rather than fake data. This is an upstream API issue unrelated to the application code.
+
+---
+
+## Technology Stack
+
+| Layer | Technology | Version |
+|---|---|---|
+| Language | Java | 11 |
+| Framework | Spring Boot | 2.3.12.RELEASE |
+| Cloud | Spring Cloud Netflix (Hoxton) | Hoxton.SR12 |
+| Service Discovery | Netflix Eureka | — |
+| API Gateway | Netflix Zuul | — |
+| HTTP Client | OkHttp3 | 4.9.3 |
+| JSON | Jackson Databind | (managed) |
+| Build | Gradle multi-module | 6.9.4 |
+| Containerisation | Docker + Docker Compose | — |
+| CI/CD | Travis CI | — |
+| Code Coverage | JaCoCo | 0.8.11 |
+| Testing | JUnit 5 | — |
+| External API | Booking.com via RapidAPI | — |
 
 ---
 
 ## Prerequisites
 
-### Java 11 — Required
+### Java 11
 
-Gradle 6.9.4 supports Java 8–16 only. **Java 17+ will not work** with this build configuration.
+Gradle 6.9.4 supports Java 8–16 only. **Java 17+ will not work.**
 
-**macOS (Homebrew):**
 ```bash
-$ brew install --cask temurin11
+# macOS
+brew install --cask temurin11
+
+# Verify
+java -version
+# Expected: openjdk version "11.x.x"
 ```
 
-**Verify:**
-```bash
-$ java -version
-# Expected: openjdk version "11.x.x" ...
-```
-
-**If you have multiple JDKs installed,** point Gradle to Java 11 by creating `gradle.properties` in the project root:
+If you have multiple JDKs, pin Gradle to Java 11 by creating `gradle.properties` in the project root:
 
 ```properties
 org.gradle.java.home=/Library/Java/JavaVirtualMachines/temurin-11.jdk/Contents/Home
 ```
 
-Adjust the path to match your installation (`/usr/libexec/java_home -v 11` will print the correct path on macOS).
+Find the correct path: `/usr/libexec/java_home -v 11`
 
-### Gradle
-
-No separate Gradle installation required. The project includes a Gradle wrapper (`./gradlew`). Make it executable if needed:
+### Docker (for containerised deployment)
 
 ```bash
-$ chmod +x gradlew
+docker --version          # Docker 20+
+docker-compose --version  # Compose 1.29+
 ```
 
-### Port Availability
-
-Ensure these ports are free before starting services:
+### Port availability
 
 ```bash
-$ lsof -i :8761,8080,8081,8082,8083
-# No output = ports are available
+lsof -i :8761,8080,8081,8082,8083
+# No output = all ports free
 ```
 
 ---
 
-## Getting Started
+## Quick Start — Docker Compose
 
-### 1. Clone the Repository
+The fastest way to run the entire stack:
 
-```bash
-$ git clone <repository-url>
-$ cd travel-booking-system
-```
-
-### 2. Build the Project
+**1. Clone and configure**
 
 ```bash
-$ ./gradlew clean build
+git clone https://github.com/maliksalimov/travel-booking-system.git
+cd travel-booking-system
+cp .env.example .env
+# Edit .env and set your Booking.com RapidAPI key:
+#   BOOKING_API_KEY=your_key_here
 ```
 
-A successful build compiles all five modules and produces executable JARs in each service's `build/libs/` directory.
-
-### 3. Start Services — Order Matters
-
-Services must start in this exact sequence. The discovery server must be fully up before business services register, and the gateway must start last so it can find registered instances.
-
-**Step 1 — Start the discovery server (Eureka):**
-```bash
-$ cd discovery-service
-$ ../gradlew bootRun
-```
-
-Wait approximately **30 seconds** for Eureka to finish initializing. You should see:
-```
-Started DiscoveryServiceApplication in X.XXX seconds
-```
-
-Open the Eureka dashboard to confirm it's running: [http://localhost:8761](http://localhost:8761)
-
-**Step 2 — Start business services (new terminal windows, in parallel):**
+**2. Build JARs**
 
 ```bash
-# Terminal 2
-$ cd flight-service && ../gradlew bootRun
-
-# Terminal 3
-$ cd hotel-service && ../gradlew bootRun
-
-# Terminal 4
-$ cd car-rental-service && ../gradlew bootRun
+./gradlew clean build -x test
 ```
 
-Wait for each to print `Started ...Application in X.XXX seconds`. Refresh the Eureka dashboard — you should see `FLIGHT-SERVICE`, `HOTEL-SERVICE`, and `CAR-RENTAL-SERVICE` listed under "Instances currently registered with Eureka".
-
-**Step 3 — Start the API gateway:**
-```bash
-# Terminal 5
-$ cd api-gateway && ../gradlew bootRun
-```
-
-### 4. Verify Everything is Running
+**3. Start all services**
 
 ```bash
-$ curl -s http://localhost:8761/eureka/apps | grep "<app>"
+docker-compose up --build
 ```
 
-Expected output (order may vary):
-```xml
-<app>FLIGHT-SERVICE</app>
-<app>HOTEL-SERVICE</app>
-<app>CAR-RENTAL-SERVICE</app>
-<app>API-GATEWAY</app>
+Services start in dependency order: Eureka → business services → gateway.  
+Wait for the gateway to print `Started ApiGatewayApplication` (~60 s total).
+
+**4. Open the dashboard**
+
+Open `frontend/index.html` in your browser — or open `http://localhost:8080` if you serve the frontend.
+
+**5. Stop**
+
+```bash
+docker-compose down
 ```
 
 ---
 
-## API Documentation
+## Manual Setup
 
-All requests go through the gateway on port **8080**.
+Use this approach for development or when Docker is not available.
 
-| Service      | Gateway Endpoint          | Method | Required Parameters            |
-|--------------|---------------------------|--------|-------------------------------|
-| Flights      | `/flights/search`         | GET    | `origin`, `destination`, `date`|
-| Hotels       | `/hotels/search`          | GET    | `location`                     |
-| Car Rentals  | `/cars/search`            | GET    | `location`                     |
-
-### Flight Search
+### 1. Clone and build
 
 ```bash
-$ curl -s "http://localhost:8080/flights/search?origin=JFK&destination=LAX&date=2026-05-15" | python3 -m json.tool
+git clone https://github.com/maliksalimov/travel-booking-system.git
+cd travel-booking-system
+chmod +x gradlew
+./gradlew clean build
 ```
 
-**Example response:**
-```json
-[
-  {
-    "id": "MOCK001",
-    "origin": "JFK",
-    "destination": "LAX",
-    "departureTime": "2026-05-15T08:00",
-    "arrivalTime": "2026-05-15T11:30",
-    "airline": "United Airlines",
-    "price": 450.0,
-    "currency": "$450"
-  },
-  {
-    "id": "MOCK002",
-    "origin": "JFK",
-    "destination": "LAX",
-    "departureTime": "2026-05-15T14:00",
-    "arrivalTime": "2026-05-15T17:30",
-    "airline": "Delta",
-    "price": 380.0,
-    "currency": "$380"
-  }
-]
-```
+### 2. Set API credentials (optional)
 
-### Hotel Search
+The API key ships as a fallback in `application.yml`. To override it, export the environment variable before starting each service:
 
 ```bash
-$ curl -s "http://localhost:8080/hotels/search?location=New+York" | python3 -m json.tool
+export BOOKING_API_KEY=your_rapidapi_key_here
 ```
 
-**Example response:**
-```json
-[
-  {
-    "id": "H001",
-    "name": "Grand Plaza Hotel",
-    "location": "New York",
-    "pricePerNight": 180.0,
-    "rating": 4.5
-  },
-  {
-    "id": "H002",
-    "name": "Sunset Resort",
-    "location": "New York",
-    "pricePerNight": 250.0,
-    "rating": 4.8
-  },
-  {
-    "id": "H003",
-    "name": "Budget Inn",
-    "location": "New York",
-    "pricePerNight": 90.0,
-    "rating": 3.9
-  }
-]
-```
+### 3. Start services in order
 
-### Car Rental Search
+Open five terminal windows:
 
 ```bash
-$ curl -s "http://localhost:8080/cars/search?location=Los+Angeles" | python3 -m json.tool
+# Terminal 1 — Eureka (start first, wait ~30 s)
+cd discovery-service && ../gradlew bootRun
+
+# Terminal 2 — Flight service
+cd flight-service && ../gradlew bootRun
+
+# Terminal 3 — Hotel service
+cd hotel-service && ../gradlew bootRun
+
+# Terminal 4 — Car rental service
+cd car-rental-service && ../gradlew bootRun
+
+# Terminal 5 — API Gateway (start last)
+cd api-gateway && ../gradlew bootRun
 ```
 
-**Example response:**
-```json
-[
-  {
-    "id": "C001",
-    "model": "Toyota Camry",
-    "location": "Los Angeles",
-    "pricePerDay": 55.0,
-    "type": "Sedan"
-  },
-  {
-    "id": "C002",
-    "model": "Ford Explorer",
-    "location": "Los Angeles",
-    "pricePerDay": 85.0,
-    "type": "SUV"
-  },
-  {
-    "id": "C003",
-    "model": "Tesla Model 3",
-    "location": "Los Angeles",
-    "pricePerDay": 120.0,
-    "type": "Electric"
-  }
-]
+### 4. Verify registration
+
+```bash
+curl -s -H "Accept:application/json" http://localhost:8761/eureka/apps \
+  | python3 -m json.tool | grep '"app"'
 ```
 
----
-
-## Project Structure
-
+Expected:
 ```
-travel-booking-system/
-├── build.gradle                          # Root build config (shared deps, plugins)
-├── settings.gradle                       # Module declarations
-├── gradlew / gradlew.bat                 # Gradle wrapper scripts
-├── gradle/
-│   └── wrapper/
-│       └── gradle-wrapper.properties    # Gradle 6.9.4 distribution URL
-│
-├── discovery-service/                   # Eureka server
-│   ├── build.gradle
-│   └── src/main/
-│       ├── java/.../DiscoveryServiceApplication.java
-│       └── resources/application.yml    # port: 8761
-│
-├── api-gateway/                         # Zuul proxy + routing rules
-│   ├── build.gradle
-│   └── src/main/
-│       ├── java/.../ApiGatewayApplication.java
-│       └── resources/application.yml    # port: 8080, zuul routes
-│
-├── flight-service/                      # Flight search
-│   ├── build.gradle
-│   └── src/main/
-│       ├── java/.../
-│       │   ├── FlightServiceApplication.java
-│       │   ├── controller/FlightController.java
-│       │   ├── model/Flight.java
-│       │   └── service/FlightService.java
-│       └── resources/application.yml    # port: 8081, rapidapi config
-│
-├── hotel-service/                       # Hotel search
-│   ├── build.gradle
-│   └── src/main/
-│       ├── java/.../
-│       │   ├── HotelServiceApplication.java
-│       │   ├── controller/HotelController.java
-│       │   ├── model/Hotel.java
-│       │   └── service/HotelService.java
-│       └── resources/application.yml    # port: 8082
-│
-└── car-rental-service/                  # Car rental search
-    ├── build.gradle
-    └── src/main/
-        ├── java/.../
-        │   ├── CarRentalServiceApplication.java
-        │   ├── controller/CarRentalController.java
-        │   ├── model/Car.java
-        │   └── service/CarRentalService.java
-        └── resources/application.yml    # port: 8083
+"app": "FLIGHT-SERVICE",
+"app": "HOTEL-SERVICE",
+"app": "CAR-RENTAL-SERVICE",
+"app": "API-GATEWAY",
 ```
 
 ---
 
 ## Configuration
 
-### Changing Service Ports
+### Environment Variables
 
-Each service has its port defined in `<service>/src/main/resources/application.yml`:
+| Variable | Default (in yml) | Description |
+|---|---|---|
+| `BOOKING_API_KEY` | *(hardcoded fallback)* | RapidAPI key for booking-com15.p.rapidapi.com |
+| `BOOKING_API_HOST` | `booking-com15.p.rapidapi.com` | RapidAPI host header |
 
-```yaml
-server:
-  port: 8081   # Change this
+Set in a `.env` file (excluded from git) or export before running:
+
+```bash
+export BOOKING_API_KEY=your_key_here
+export BOOKING_API_HOST=booking-com15.p.rapidapi.com
 ```
 
-If you change a business service's port, no other configuration needs updating — Eureka handles discovery dynamically. If you change the Eureka server port (default `8761`), update `eureka.client.service-url.defaultZone` in every other service's `application.yml`.
+**`.env.example`** — copy this to `.env` and fill in your key:
 
-### Eureka Server URL
-
-All client services point to the discovery server via:
-
-```yaml
-eureka:
-  client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
+```bash
+BOOKING_API_KEY=your_rapidapi_key_here
 ```
 
-For a non-local deployment, replace `localhost:8761` with the actual Eureka host.
+### application.yml pattern (all three services)
 
-### Zuul Routing Rules
+```yaml
+booking:
+  api:
+    key: ${BOOKING_API_KEY:fallback-key}
+    host: ${BOOKING_API_HOST:booking-com15.p.rapidapi.com}
+```
 
-The gateway routing is defined in `api-gateway/src/main/resources/application.yml`:
+### Gateway timeouts (api-gateway/src/main/resources/application.yml)
+
+```yaml
+ribbon:
+  ConnectTimeout: 5000
+  ReadTimeout: 20000
+
+hystrix:
+  command:
+    default:
+      execution:
+        isolation:
+          thread:
+            timeoutInMilliseconds: 30000
+```
+
+These values accommodate two chained API calls (destination lookup + main search) which can take up to 15 s combined on a cold start.
+
+### Zuul routes
 
 ```yaml
 zuul:
@@ -411,40 +342,257 @@ zuul:
       path: /flights/**
       serviceId: FLIGHT-SERVICE
       strip-prefix: false
+    hotels:
+      path: /hotels/**
+      serviceId: HOTEL-SERVICE
+      strip-prefix: false
+    cars:
+      path: /cars/**
+      serviceId: CAR-RENTAL-SERVICE
+      strip-prefix: false
 ```
 
-- `path`: the pattern Zuul matches on incoming requests
-- `serviceId`: the Spring application name of the target service (case-insensitive; Eureka registers services in uppercase)
-- `strip-prefix: false`: the matched path prefix is **not** removed before forwarding. With this set to `true`, a request to `/flights/search` would be forwarded as `/search`; with `false` it's forwarded as `/flights/search`, which matches the controller's `@RequestMapping("/flights")` + `@GetMapping("/search")`
+`strip-prefix: false` forwards the full path unchanged so the controllers' `@RequestMapping` annotations match without modification.
 
 ---
 
-## Development Notes
+## Frontend Dashboard
 
-### Why Netflix Zuul and Eureka (not Spring Cloud Gateway)?
+A single-page HTML/JS/CSS application in `frontend/`.
 
-Zuul 1 and the Netflix discovery stack were deprecated in Spring Cloud 2020.0.x in favor of Spring Cloud Gateway and Spring Cloud LoadBalancer. This project uses Hoxton.SR12 (the last Hoxton release) to keep the full Netflix OSS stack intact for educational purposes — it demonstrates the pattern that the newer stack was designed to replace, which is useful context when working in organizations that haven't migrated.
+**Open:** `frontend/index.html` directly in a browser. No build step required.
 
-Migrating to Spring Cloud Gateway would require:
-- Upgrading to Spring Boot 2.4+ and Spring Cloud 2020.0.x+
-- Replacing the `@EnableZuulProxy` bootstrap with a `RouteLocator` bean or `application.yml` gateway routes
-- Replacing Ribbon load balancing with Spring Cloud LoadBalancer
+**Tabs:**
 
-### Flight Service: RapidAPI Integration and Mock Fallback
+| Tab | How to search |
+|---|---|
+| ✈️ Flights | Enter IATA codes (`GYD`, `MAD`) **or** city names (`Baku`, `Madrid`) + date |
+| 🏨 Hotels | Enter any city name (`New York`, `Paris`) + arrival/departure dates |
+| 🚗 Cars | Enter a city name + pick-up/drop-off date and time |
 
-`FlightService` attempts a live call to the Skyscanner API via [RapidAPI](https://rapidapi.com/apiheya/api/sky-scrapper) on every request. If the API key is invalid, the network is unavailable, or the response structure doesn't contain an `itineraries` node, the service logs a warning and returns a static list of three mock flights. This means the service is always functional regardless of external API availability.
+The city→IATA lookup covers 60 airports. For unlisted cities enter the 3-letter IATA code directly.
 
-To use a live API key, update `rapidapi.flight.key` in `flight-service/src/main/resources/application.yml`. **Do not commit a valid API key to version control** — move it to an environment variable instead:
+**City → IATA coverage (sample):**
 
-```yaml
-rapidapi:
-  flight:
-    key: ${RAPIDAPI_KEY:your-key-here}
+| City | Code | City | Code |
+|---|---|---|---|
+| Baku | GYD | London | LHR |
+| Madrid | MAD | Paris | CDG |
+| Istanbul | IST | New York | JFK |
+| Dubai | DXB | Los Angeles | LAX |
+| Tokyo | NRT | Singapore | SIN |
+
+---
+
+## API Reference
+
+All requests go through the gateway at `http://localhost:8080`.
+
+### `GET /flights/search`
+
+| Parameter | Type | Required | Example |
+|---|---|---|---|
+| `origin` | string | ✅ | `GYD` or `Baku` |
+| `destination` | string | ✅ | `MAD` or `Madrid` |
+| `date` | `YYYY-MM-DD` | ✅ | `2026-06-01` |
+
+```bash
+curl -s "http://localhost:8080/flights/search?origin=GYD&destination=MAD&date=2026-06-01" \
+  | python3 -m json.tool
 ```
 
-### Hotel and Car Rental Services
+**Response:**
+```json
+[
+  {
+    "id": "1_VF578_VF605.GYD20260601",
+    "origin": "GYD",
+    "destination": "MAD",
+    "departureTime": "2026-06-01T16:25:00",
+    "arrivalTime": "2026-06-02T16:05:00",
+    "airline": "AJET",
+    "price": 182.53,
+    "currency": "USD 182.53"
+  }
+]
+```
 
-Both services currently return hardcoded mock data. They are structured identically to `flight-service` (controller → service → model) to make replacing the mock with a real API integration straightforward — only the service class needs to change.
+### `GET /hotels/search`
+
+| Parameter | Type | Required | Default | Example |
+|---|---|---|---|---|
+| `location` | string | ✅ | — | `New York` |
+| `arrivalDate` | `YYYY-MM-DD` | ❌ | `2026-05-01` | `2026-06-01` |
+| `departureDate` | `YYYY-MM-DD` | ❌ | `2026-05-05` | `2026-06-05` |
+
+```bash
+curl -s "http://localhost:8080/hotels/search?location=New%20York&arrivalDate=2026-06-01&departureDate=2026-06-05" \
+  | python3 -m json.tool
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "14142501",
+    "name": "The Peninsula New York",
+    "location": "New York",
+    "pricePerNight": 875.0,
+    "rating": 9.2
+  }
+]
+```
+
+### `GET /cars/search`
+
+| Parameter | Type | Required | Example |
+|---|---|---|---|
+| `location` | string | ✅ | `London` |
+| `pickUpLat` | double | ✅ | `51.5074` |
+| `pickUpLon` | double | ✅ | `-0.1278` |
+| `dropOffLat` | double | ✅ | `51.5074` |
+| `dropOffLon` | double | ✅ | `-0.1278` |
+| `pickUpTime` | `YYYY-MM-DDTHH:MM:SS` | ✅ | `2026-06-01T10:00:00` |
+| `dropOffTime` | `YYYY-MM-DDTHH:MM:SS` | ✅ | `2026-06-05T10:00:00` |
+
+> **Note:** The upstream car rental API is currently returning a server error for all requests. The service returns `[]` and the frontend displays an unavailability message.
+
+---
+
+## Project Structure
+
+```
+travel-booking-system/
+├── build.gradle                # Root: shared plugins, deps, JaCoCo config
+├── settings.gradle             # Declares all 5 sub-modules
+├── gradlew / gradlew.bat       # Gradle wrapper
+├── docker-compose.yml          # Orchestrates all 5 services
+├── .travis.yml                 # CI: build → test → jacocoTestReport → docker build
+├── .env.example                # Template for local credentials
+├── .gitignore                  # Excludes .env, build/, .gradle/, .idea/
+│
+├── frontend/
+│   ├── index.html              # Single-page dashboard (3 tabs)
+│   ├── app.js                  # Fetch calls + display logic + city→coords map
+│   └── style.css               # Dark theme, responsive layout
+│
+├── discovery-service/          # Eureka server :8761
+│   ├── Dockerfile
+│   ├── build.gradle
+│   └── src/main/resources/application.yml
+│
+├── api-gateway/                # Zuul proxy :8080
+│   ├── Dockerfile
+│   ├── build.gradle
+│   └── src/main/
+│       ├── java/.../ApiGatewayApplication.java   (@EnableZuulProxy)
+│       ├── java/.../CorsConfig.java
+│       └── resources/application.yml             (routes + timeouts)
+│
+├── flight-service/             # Booking.com flights :8081
+│   ├── Dockerfile
+│   ├── build.gradle
+│   └── src/
+│       ├── main/java/.../
+│       │   ├── controller/FlightController.java
+│       │   ├── model/Flight.java
+│       │   └── service/FlightService.java        (CITY_TO_IATA map, flightOffers parser)
+│       └── test/java/.../FlightServiceTest.java
+│
+├── hotel-service/              # Booking.com hotels :8082
+│   ├── Dockerfile
+│   ├── build.gradle
+│   └── src/
+│       ├── main/java/.../
+│       │   ├── controller/HotelController.java
+│       │   ├── model/Hotel.java
+│       │   └── service/HotelService.java         (searchDestination → searchHotels)
+│       └── test/java/.../HotelServiceTest.java
+│
+└── car-rental-service/         # Car rentals :8083
+    ├── Dockerfile
+    ├── build.gradle
+    └── src/
+        ├── main/java/.../
+        │   ├── controller/CarRentalController.java
+        │   ├── model/Car.java
+        │   └── service/CarRentalService.java      (returns [] on upstream error)
+        └── test/java/.../CarRentalServiceTest.java
+```
+
+---
+
+## Testing
+
+### Run all tests
+
+```bash
+./gradlew test
+```
+
+### Run tests with coverage report
+
+```bash
+./gradlew test jacocoTestReport
+```
+
+HTML reports land in each module's `build/reports/jacoco/test/html/index.html`.
+
+### Run a single module's tests
+
+```bash
+./gradlew :hotel-service:test
+./gradlew :flight-service:test
+./gradlew :car-rental-service:test
+```
+
+### Test a service directly (bypassing the gateway)
+
+```bash
+# Flight service — direct port
+curl "http://localhost:8081/flights/search?origin=GYD&destination=MAD&date=2026-06-01"
+
+# Hotel service — direct port
+curl "http://localhost:8082/hotels/search?location=Paris&arrivalDate=2026-06-01&departureDate=2026-06-05"
+
+# Car rental — direct port
+curl "http://localhost:8083/cars/search?location=London&pickUpLat=51.5074&pickUpLon=-0.1278&dropOffLat=51.5074&dropOffLon=-0.1278&pickUpTime=2026-06-01T10:00:00&dropOffTime=2026-06-05T10:00:00"
+```
+
+If a direct call succeeds but the gateway call fails, the problem is service registration — see [Troubleshooting](#troubleshooting).
+
+---
+
+## CI/CD Pipeline
+
+Travis CI runs on every push:
+
+```yaml
+# .travis.yml
+install:
+  - ./gradlew clean build -x test   # Compile all modules
+
+script:
+  - ./gradlew test jacocoTestReport  # Run tests + generate coverage
+  - docker-compose build             # Verify all Docker images build
+
+after_success:
+  - bash <(curl -s https://codecov.io/bash)  # Upload coverage to Codecov
+```
+
+**Pipeline stages:**
+
+```
+Push to GitHub
+    │
+    ▼
+Travis CI
+    ├─ chmod +x gradlew
+    ├─ ./gradlew clean build -x test      (compile)
+    ├─ ./gradlew test jacocoTestReport    (test + coverage)
+    ├─ docker-compose build               (image build verification)
+    └─ Upload to Codecov (on success)
+```
 
 ---
 
@@ -456,96 +604,73 @@ Both services currently return hardcoded mock data. They are structured identica
 Web server failed to start. Port XXXX was already in use.
 ```
 
-Find and kill the process using the port:
 ```bash
-$ lsof -ti :8080 | xargs kill -9
+lsof -ti :8080 | xargs kill -9
 ```
 
 ### Java version mismatch
 
 ```
-Unsupported class file major version 65  (or higher)
+Unsupported class file major version 65
 ```
 
-Your active JDK is Java 21+ (version 65 = Java 21, 69 = Java 25). Gradle 6.9.4 requires Java ≤ 16. Install Java 11 and either set `JAVA_HOME` or add `org.gradle.java.home` to `gradle.properties` (see [Prerequisites](#prerequisites)).
+Version 65 = Java 21, which Gradle 6.9.4 does not support. Install Java 11 and pin it:
 
-### Gradle daemon issues
-
-If builds hang or produce unexpected errors after a JDK change:
 ```bash
-$ ./gradlew --stop     # Stop all running daemons
-$ ./gradlew clean build
+/usr/libexec/java_home -v 11
+# Returns e.g. /Library/Java/JavaVirtualMachines/temurin-11.jdk/Contents/Home
+```
+
+Add to `gradle.properties`:
+```properties
+org.gradle.java.home=/Library/Java/JavaVirtualMachines/temurin-11.jdk/Contents/Home
 ```
 
 ### Services not appearing in Eureka
 
-**Symptom:** Eureka dashboard shows no registered instances, or gateway returns `500 / No instances available`.
-
 **Checklist:**
-1. Confirm the discovery service started fully before business services (watch for `Started DiscoveryServiceApplication`)
-2. Eureka has a heartbeat grace period — wait up to **90 seconds** after a service starts before it appears in the registry
-3. Verify each service's `application.yml` points to the correct Eureka URL (`http://localhost:8761/eureka/`)
-4. Check that no firewall or VPN is blocking `localhost` loopback connections
+1. Eureka must be fully started before business services (watch for `Started DiscoveryServiceApplication`)
+2. Eureka has a 90-second heartbeat grace period — wait before checking the dashboard
+3. All services must point to the same `eureka.client.service-url.defaultZone`
+4. With Docker Compose, services use `http://discovery-service:8761/eureka/` (hostname, not `localhost`)
 
-### Gateway returns 404 but service works on its direct port
+### Gateway returns 504 Gateway Timeout
 
-Zuul routes by service ID. If the gateway starts before the business services register with Eureka, it will not find them. Restart the gateway after all business services are up, or wait for Eureka's registry refresh cycle (~30s) and retry.
+The Booking.com API makes two sequential calls per request (location lookup + search). If either takes longer than 20 s, Hystrix cuts the circuit. Check service logs for `[flights]` or `[hotels]` timing lines and verify your internet connection.
 
----
+### Gateway returns 404 but service works on direct port
 
-## Testing
+Zuul routes by Eureka service ID. If the gateway started before a service registered, it won't route to it. Either restart the gateway, or wait up to 30 s for the Eureka registry refresh cycle.
 
-### Test a service directly (bypassing the gateway)
+### Flights return MOCK001 / MOCK002 / MOCK003
 
-```bash
-# Flight service — direct
-$ curl "http://localhost:8081/flights/search?origin=JFK&destination=LAX&date=2026-05-15"
+This means `searchFlights` failed. Common causes:
+- Invalid airport ID: enter a 3-letter IATA code (`GYD`) or a city from the [lookup table](#frontend-dashboard)
+- Date is in the past or the route has no available flights for that date
+- Network blocked or API key invalid — check service logs for `[flights] ERROR HTTP` lines
 
-# Hotel service — direct
-$ curl "http://localhost:8082/hotels/search?location=Paris"
+### Hotels return real data but wrong location
 
-# Car rental service — direct
-$ curl "http://localhost:8083/cars/search?location=Miami"
-```
-
-### Test through the gateway
-
-```bash
-# All three through port 8080
-$ curl "http://localhost:8080/flights/search?origin=LHR&destination=CDG&date=2026-06-01"
-$ curl "http://localhost:8080/hotels/search?location=London"
-$ curl "http://localhost:8080/cars/search?location=London"
-```
-
-If the direct-port request succeeds but the gateway request fails, the issue is service registration (see [Troubleshooting](#troubleshooting)).
-
-### Verify Eureka registration
-
-```bash
-# List all registered apps as JSON
-$ curl -s -H "Accept: application/json" http://localhost:8761/eureka/apps | python3 -m json.tool | grep '"app"'
-```
+The hotel service resolves city names through `/api/v1/hotels/searchDestination`. If the API returns a region instead of a city, the hotels shown may be in the wider metro area. Use well-known city names (`"New York"`, `"London"`) for best results.
 
 ---
 
 ## Contributing
 
 1. Fork the repository and create a feature branch from `main`
-2. Keep each service's `build.gradle` minimal — shared configuration belongs in the root `build.gradle` under `subprojects {}`
-3. If adding a new service, register it in `settings.gradle` and add a Zuul route to `api-gateway/src/main/resources/application.yml`
-4. Test startup order manually before submitting a PR
+2. Keep each service's `build.gradle` minimal — shared config belongs in root `build.gradle` under `subprojects {}`
+3. New services must be registered in `settings.gradle` and have a Zuul route in `api-gateway/src/main/resources/application.yml`
+4. Do not commit API keys — use environment variables with yml fallbacks
+5. Test startup order manually before submitting a PR
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License.
 
 ---
 
-## Acknowledgments
+## Author
 
-- **Qwasar Silicon Valley** — academic project context and microservices assignment structure
-- **Spring Cloud Netflix** — Eureka and Zuul documentation and reference implementations
-- **Netflix OSS** — original open-source implementations of Eureka and Zuul
-- **RapidAPI / Sky Scrapper** — flight search API used in the flight service integration attempt
+**Malik Salimov** — [github.com/maliksalimov](https://github.com/maliksalimov)
